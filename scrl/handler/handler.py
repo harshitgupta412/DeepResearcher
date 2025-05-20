@@ -15,6 +15,7 @@ import time
 import os
 from tqdm import tqdm
 import requests
+from lotus.models import LM
 
 class Handler:
     def __init__(self, agent_config, client, handler_config):
@@ -354,9 +355,13 @@ if __name__ == "__main__":
         RESPONSE_SIGNAL=0,
         QUERY_SIGNAL=1,
     )
-    client = OpenAI(
-        api_key="sk-xxx",
-        base_url="xxxx"
+    client = LM(
+        model="hosted_vllm/meta-llama/Llama-4-Scout-17B-16E-Instruct",
+        api_base="http://localhost:8001/v1",
+        custom_llm_provider="hosted_vllm",
+        max_tokens=1000,
+        temperature=0,
+        max_ctx_len=128 * 1000,
     )
     handler = Handler(agent_config=config, client=client, handler_config=handler_config)
     handler.foward_to_server()

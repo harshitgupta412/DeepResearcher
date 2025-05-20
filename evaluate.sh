@@ -1,12 +1,11 @@
-
 export VLLM_ATTENTION_BACKEND=XFORMERS
-export project_name="project_name"
-export experiment_name="experiment_name"
+export project_name="lotus-research"
+export experiment_name="deepresearcher-evaluate"
 
     
-PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
+PYTHONUNBUFFERED=1 CUDA_VISIBLE_DEVICES=3,4,5,6 python3 -m verl.trainer.main_ppo \
     data.train_files=./data/train.parquet \
-    data.val_files=./data/test.parquet \
+    data.val_files=./data/papers.parquet \
     data.train_batch_size=256 \
     data.max_prompt_length=30767 \
     data.max_response_length=2000 \

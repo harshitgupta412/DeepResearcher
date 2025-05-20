@@ -37,7 +37,7 @@ class WebSearchAgent:
                 "headers": {"User-Agent": self.user_agent},
                 "timeout": (5, 10),
             },
-            "serper_api_key": config['serper_api_key'],
+            "serper_api_key": config.get('serper_api_key'),
         }
         downloads_folder_path = f"./{self.BROWSER_CONFIG['downloads_folder']}"
         if not os.path.exists(downloads_folder_path):

@@ -10,6 +10,7 @@ from tqdm import tqdm
 import time
 import threading
 import traceback
+from lotus.models import LM
 
 app = Flask(__name__)
 
@@ -20,9 +21,13 @@ handler_config = SimpleNamespace(
     RESPONSE_SIGNAL=0,
     QUERY_SIGNAL=1,
 )
-client = OpenAI(
-    api_key="sk-xxx",
-    base_url="xxxx"
+client = LM(
+    model="hosted_vllm/meta-llama/Llama-4-Scout-17B-16E-Instruct",
+    api_base="http://localhost:8001/v1",
+    custom_llm_provider="hosted_vllm",
+    max_tokens=1000,
+    temperature=0,
+    max_ctx_len=128 * 1000,
 )
 query_save_path_dir = os.path.dirname(config["query_save_path"])
 if not os.path.exists(query_save_path_dir):

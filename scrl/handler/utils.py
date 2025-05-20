@@ -3,6 +3,7 @@ from openai import OpenAI
 import re
 from urllib.parse import urlparse
 import time
+from lotus.models import LM
 
 def extract_url_root_domain(url):
     """
@@ -57,13 +58,20 @@ def get_content_from_tag(content, tag, default_value=None):
 
 def get_response_from_llm(
         messages: List[Dict[str, Any]],
-        client: OpenAI,
+        client: OpenAI | LM,
         model: str,
         stream: Optional[bool] = False,
         temperature: Optional[float] = 0.6,
         depth: int = 0
 ):
     try:
+        if isinstance(client, LM):
+            return {
+                "content": client(
+                    messages=[messages],
+                    temperature=temperature,
+                ).outputs[0]
+            }
         response = client.chat.completions.create(
             model=model,
             messages=messages,

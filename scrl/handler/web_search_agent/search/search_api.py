@@ -2,7 +2,9 @@ import requests
 import json
 import http.client
 import time
-
+from lotus.web_search import web_search as lotus_web_search, WebSearchCorpus
+import pandas as pd
+import os 
 
 def web_search(query, config):
     if not query:
@@ -22,6 +24,38 @@ def web_search(query, config):
             mkt=config['azure_bing_search_mkt'],
             top_k=config['search_top_k']
         )
+    elif config['search_engine'] == 'lotus':
+        corpuses = [
+            WebSearchCorpus(corpus)
+            for corpus in config['lotus_corpus']
+        ]
+        results = []
+        for corpus in corpuses:
+            df: pd.DataFrame = lotus_web_search(
+                query=query,
+                corpus=corpus,
+                K=config['search_top_k']
+            )
+            if corpus == WebSearchCorpus.ARXIV:
+                df.rename(
+                    columns={"abstract": "snippet", "link": "url", "published": "date"},
+                    inplace=True,
+                )
+                df["date"] = df["date"].astype(str)
+            elif (
+                corpus == WebSearchCorpus.GOOGLE or corpus == WebSearchCorpus.GOOGLE_SCHOLAR
+            ):
+                df.rename(columns={"link": "url"}, inplace=True)
+            elif corpus == WebSearchCorpus.BING:
+                df.rename(columns={"name": "title"}, inplace=True)
+            elif corpus == WebSearchCorpus.TAVILY:
+                df.rename(columns={"content": "snippet"}, inplace=True)
+            results.extend([{
+                "title": row['title'],
+                "link": row['url'],
+                "snippet": row.get('snippet', ''),
+            } for _, row in df.iterrows()])
+        return results
 
 
 def azure_bing_search(query, subscription_key, mkt, top_k, depth=0):
