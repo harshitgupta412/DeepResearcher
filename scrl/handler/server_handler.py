@@ -23,7 +23,7 @@ handler_config = SimpleNamespace(
 )
 client = LM(
     model="hosted_vllm/meta-llama/Llama-4-Scout-17B-16E-Instruct",
-    api_base="http://localhost:8001/v1",
+    api_base="http://localhost:8010/v1",
     custom_llm_provider="hosted_vllm",
     max_tokens=1000,
     temperature=0,

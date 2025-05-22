@@ -243,15 +243,17 @@ class Handler:
     def post_request(self, server_url: str, query_contents: List[dict],server_cnt):
         if not query_contents:
             return query_contents
+        depth = 0
         while True:
             try:
-                response = requests.post(f"{server_url}/handle_execution", json={"query_contents": query_contents}, timeout=999)
+                response = requests.post(f"{server_url}/handle_execution", json={"query_contents": query_contents})
                 return response.json()['query_contents']
             except Exception as e:
                 print(f"{server_cnt} Error occurred: {e}",flush=True)
                 depth += 1
                 time.sleep(1)
- 
+                if depth > 10:
+                    return query_contents
 
     def handle_single_query(self, query_content: dict, api_result_dict: dict):
         try:
@@ -357,7 +359,7 @@ if __name__ == "__main__":
     )
     client = LM(
         model="hosted_vllm/meta-llama/Llama-4-Scout-17B-16E-Instruct",
-        api_base="http://localhost:8001/v1",
+        api_base="http://localhost:8010/v1",
         custom_llm_provider="hosted_vllm",
         max_tokens=1000,
         temperature=0,

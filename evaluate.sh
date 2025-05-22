@@ -3,7 +3,7 @@ export project_name="lotus-research"
 export experiment_name="deepresearcher-evaluate"
 
     
-PYTHONUNBUFFERED=1 CUDA_VISIBLE_DEVICES=3,4,5,6 python3 -m verl.trainer.main_ppo \
+PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
     data.train_files=./data/train.parquet \
     data.val_files=./data/papers.parquet \
     data.train_batch_size=256 \
@@ -37,14 +37,15 @@ PYTHONUNBUFFERED=1 CUDA_VISIBLE_DEVICES=3,4,5,6 python3 -m verl.trainer.main_ppo
     trainer.project_name=${project_name} \
     trainer.experiment_name=${experiment_name} \
     +trainer.val_before_train=true \
+    +trainer.val_only=true \
     trainer.default_hdfs_dir=null \
-    trainer.n_gpus_per_node=8 \
+    trainer.n_gpus_per_node=4 \
     trainer.nnodes=1 \
     trainer.save_freq=1 \
     trainer.test_freq=1 \
     trainer.remove_previous_ckpt_in_save=false \
     agent_grpo.n=16 \
-    max_turns=10 \
+    max_turns=2 \
     search_engine=online_search \
-    trainer.total_epochs=1 2>&1 | tee ./${project_name}_${experiment_name}.log
+    trainer.total_epochs=1 2>&1 | tee ./"${project_name}_${experiment_name}.log"
 
