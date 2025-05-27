@@ -1,6 +1,6 @@
 export VLLM_ATTENTION_BACKEND=XFORMERS
 export project_name="lotus-research"
-export experiment_name="deepresearcher-evaluate"
+export experiment_name="deepresearcher-evaluate2"
 
     
 PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
@@ -45,7 +45,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
     trainer.test_freq=1 \
     trainer.remove_previous_ckpt_in_save=false \
     agent_grpo.n=16 \
-    max_turns=2 \
+    max_turns=10 \
     search_engine=online_search \
     trainer.total_epochs=1 2>&1 | tee ./"${project_name}_${experiment_name}.log"
 

@@ -535,18 +535,19 @@ class RayPPOTrainer(object):
             dataset=self.val_dataset,
             # Validation datasets are sent to inference engines as a whole batch,
             # which will schedule the memory themselves.
-            batch_size=len(self.val_dataset),
+            batch_size=1,
             num_workers=8,
             shuffle=False,
             drop_last=False,
             collate_fn=collate_fn)
 
         assert len(self.train_dataloader) >= 1
-        assert len(
-            self.val_dataloader
-        ) == 1, "Validation dataloader must have a single batch, which inference engines will schedule the memory themselves."
+        # assert len(
+        #     self.val_dataloader
+        # ) == 1, "Validation dataloader must have a single batch, which inference engines will schedule the memory themselves."
 
         print(f'Size of train dataloader: {len(self.train_dataloader)}')
+        print(f'Size of val dataloader: {len(self.val_dataloader)}')
 
         # inject total_training_steps to actor/critic optim_config. This is hacky.
         total_training_steps = len(self.train_dataloader) * self.config.trainer.total_epochs
@@ -699,7 +700,8 @@ class RayPPOTrainer(object):
                 reward_tensor_lst.append(reward_tensor)
                 data_source_lst.append(test_batch.non_tensor_batch.get('data_source', ['unknown'] * reward_tensor.shape[0]))
         else:
-            for batch_dict in self.val_dataloader:
+            times = []
+            for i, batch_dict in enumerate(self.val_dataloader):
                 timing_raw = {}
                 test_batch: DataProto = DataProto.from_single_dict(batch_dict)
                 
@@ -716,7 +718,8 @@ class RayPPOTrainer(object):
                         generation_manager.timing_raw = timing_raw
                         _, final_gen_batch_output = generation_manager.run_llm_loop(
                             gen_batch=test_gen_batch,
-                            global_steps=-global_steps # 取负号代表val
+                            global_steps=-global_steps, # 取负号代表val
+                            query_id=i
                         )
                     test_batch = test_batch.union(final_gen_batch_output)
                     
@@ -724,49 +727,55 @@ class RayPPOTrainer(object):
                         test_batch.batch[key] = test_batch.batch[key].long()
                     
                     # evaluate using reward_function
-                    # for certain reward function (e.g. sandbox), the generation can overlap with reward
-                    try:
-                        reward_tensor = self.val_reward_fn(test_batch, val_type='f1')
-                        em_reward_tensor = self.val_reward_fn(test_batch, val_type='em')
-                        llm_reward_tensor = self.val_reward_fn(test_batch, val_type='llm')
+                    # # for certain reward function (e.g. sandbox), the generation can overlap with reward
+                    # try:
+                    #     reward_tensor = self.val_reward_fn(test_batch, val_type='f1')
+                    #     em_reward_tensor = self.val_reward_fn(test_batch, val_type='em')
+                    #     llm_reward_tensor = self.val_reward_fn(test_batch, val_type='llm')
                 
-                    except:
-                        print(test_batch)
-                        exit()
+                    # except Exception as e:
+                    #     print(e)
+                    #     print(test_batch)
+                    #     exit()
 
-                    reward_tensor_lst.append(reward_tensor)
-                    em_reward_tensor_lst.append(em_reward_tensor)
-                    llm_reward_tensor_lst.append(llm_reward_tensor)
-                    data_source_lst.append(test_batch.non_tensor_batch.get('data_source', ['unknown'] * reward_tensor.shape[0]))
-
+                    # reward_tensor_lst.append(reward_tensor)
+                    # em_reward_tensor_lst.append(em_reward_tensor)
+                    # llm_reward_tensor_lst.append(llm_reward_tensor)
+                    # data_source_lst.append(test_batch.non_tensor_batch.get('data_source', ['unknown'] * reward_tensor.shape[0]))
+                times.append(timing_raw)
+            print(f"times: {times}")
+        
         self._maybe_log_val_generations_to_wandb(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
 
-        reward_tensor = torch.cat([rw.sum(-1) for rw in reward_tensor_lst], dim=0).cpu()  # (batch_size,)
-        em_reward_tensor = torch.cat([rw.sum(-1) for rw in em_reward_tensor_lst], dim=0).cpu()
-        llm_reward_tensor = torch.cat([rw.sum(-1) for rw in llm_reward_tensor_lst], dim=0).cpu()
+        # reward_tensor = torch.cat([rw.sum(-1) for rw in reward_tensor_lst], dim=0).cpu()  # (batch_size,)
+        # em_reward_tensor = torch.cat([rw.sum(-1) for rw in em_reward_tensor_lst], dim=0).cpu()
+        # llm_reward_tensor = torch.cat([rw.sum(-1) for rw in llm_reward_tensor_lst], dim=0).cpu()
         # reward_tensor = torch.cat(reward_tensor_lst, dim=0).sum(-1).cpu()  # (batch_size,)
-        data_sources = np.concatenate(data_source_lst, axis=0)
+        # data_sources = np.concatenate(data_source_lst, axis=0)
 
         # evaluate test_score based on data source
-        data_source_reward = {}
-        for i in range(reward_tensor.shape[0]):
-            data_source = data_sources[i]
-            f1_data_source = f"{data_source}_f1"
-            em_data_source = f"{data_source}_em"
-            llm_data_source = f"{data_source}_llm"
-            if f1_data_source not in data_source_reward:
-                data_source_reward[f1_data_source] = []
-            if em_data_source not in data_source_reward:
-                data_source_reward[em_data_source] = []
-            if llm_data_source not in data_source_reward:
-                data_source_reward[llm_data_source] = []
-            data_source_reward[f1_data_source].append(reward_tensor[i].item())
-            data_source_reward[em_data_source].append(em_reward_tensor[i].item())
-            data_source_reward[llm_data_source].append(llm_reward_tensor[i].item())
+        # data_source_reward = {}
+        # for i in range(reward_tensor.shape[0]):
+        #     data_source = data_sources[i]
+        #     f1_data_source = f"{data_source}_f1"
+        #     em_data_source = f"{data_source}_em"
+        #     llm_data_source = f"{data_source}_llm"
+        #     if f1_data_source not in data_source_reward:
+        #         data_source_reward[f1_data_source] = []
+        #     if em_data_source not in data_source_reward:
+        #         data_source_reward[em_data_source] = []
+        #     if llm_data_source not in data_source_reward:
+        #         data_source_reward[llm_data_source] = []
+        #     data_source_reward[f1_data_source].append(reward_tensor[i].item())
+        #     data_source_reward[em_data_source].append(em_reward_tensor[i].item())
+        #     data_source_reward[llm_data_source].append(llm_reward_tensor[i].item())
 
         metric_dict = {}
-        for data_source, rewards in data_source_reward.items():
-            metric_dict[f'val/test_score/{data_source}'] = np.mean(rewards)
+        # for data_source, rewards in data_source_reward.items():
+        #     metric_dict[f'val/test_score/{data_source}'] = np.mean(rewards)
+        
+        metric_dict['val/time'] = times
+
         return metric_dict
 
     def init_workers(self):
@@ -963,6 +972,9 @@ class RayPPOTrainer(object):
         if self.val_reward_fn is not None and self.config.trainer.get('val_before_train', True):
             val_metrics = self._validate(self.global_steps)
             pprint(f'Initial validation metrics: {val_metrics}')
+            with open(f"./outputs/{self.config.trainer.project_name}/{self.config.trainer.experiment_name}/val_metrics.json", "w") as f:
+                import json
+                json.dump(val_metrics, f, indent=4)
             logger.log(data=val_metrics, step=self.global_steps)
             if self.config.trainer.get('val_only', False):
                 return

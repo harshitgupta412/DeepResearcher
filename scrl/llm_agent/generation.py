@@ -6,7 +6,7 @@
 # License: Apache 2.0
 # Project URL: https://github.com/PeterGriffinJin/Search-R1
 # =============================================================================
-
+import uuid
 from sympy import SYMPY_DEBUG
 import torch
 import re
@@ -24,6 +24,17 @@ import numpy as np
 import time
 from datetime import datetime
 from time import strftime, gmtime
+from lotus.models import LM
+from lotus.types import LMOutput
+
+client = LM(
+    model="hosted_vllm/meta-llama/Llama-4-Scout-17B-16E-Instruct",
+    api_base="http://localhost:8001/v1",
+    custom_llm_provider="hosted_vllm",
+    max_tokens=1000,
+    temperature=0,
+    max_ctx_len=128 * 1000,
+)
 
 @dataclass
 class GenerationConfig:
@@ -113,7 +124,6 @@ TOOLS = [
     }
 ]
 
-
 class LLMGenerationManager:
     def __init__(
         self,
@@ -174,8 +184,10 @@ Only output the final answer (in words, numbers or phrase) inside the <answer></
 The question I give you is a complex question that requires a *deep research* to answer.
 
 I will provide you with two tools to help you answer the question:
-* A web search tool to help you perform google search. 
-* A webpage browsing tool to help you get new page content.
+* A web search tool to help you perform google search. Tool call format:
+{{"name": "web_search", "arguments": {{"query": ["<query1>","<query2>","<query3>"]}}}}
+* A webpage browsing tool to help you get new page content. Tool call format:
+{{"name": "browse_webpage", "arguments": {{"url_list": ["<url1>","<url2>","<url3>"]}}}}
 
 You don't have to answer the question now, but you should first think about the research plan or what to search next.
 
@@ -283,51 +295,15 @@ Only output the final answer (in words, numbers or phrase) inside the <answer></
             query_contents = json.load(f)
         return query_contents
 
-    def _generate_with_gpu_padding(self, active_batch: DataProto) -> DataProto:
+    def _generate_with_gpu_padding(self, active_batch: list[list[dict]]) -> LMOutput:
         """
             Wrapper for generation that handles multi-GPU padding requirements.
             if num_gpus <= 1, return self.actor_rollout_wg.generate_sequences(active_batch)
             if active_batch size is not divisible by num_gpus, pad with first sequence
             then remove padding from output
         """
-        num_gpus = self.config.num_gpus * self.config.nnodes
-        if num_gpus <= 1:
-            return self.actor_rollout_wg.generate_sequences(active_batch)
-
-        batch_size = active_batch.batch['input_ids'].shape[0]
-        remainder = batch_size % num_gpus
-        
-        if remainder == 0:
-            return self.actor_rollout_wg.generate_sequences(active_batch)
-        # Add padding sequences
-        padding_size = num_gpus - remainder
-        padded_batch = {}
-        
-        for k, v in active_batch.batch.items():
-            # Use first sequence as padding template
-            pad_sequence = v[0:1].repeat(padding_size, *[1] * (len(v.shape) - 1))
-            padded_batch[k] = torch.cat([v, pad_sequence], dim=0)
-
-        padded_active_batch = DataProto.from_dict(padded_batch)
-
-        # Generate with padded batch
-        padded_output = self.actor_rollout_wg.generate_sequences(padded_active_batch)
-        
-        # Remove padding from output
-        trimmed_batch = {k: v[:-padding_size] for k, v in padded_output.batch.items()}
-        
-        # Handle meta_info if present
-        if hasattr(padded_output, 'meta_info') and padded_output.meta_info:
-            trimmed_meta = {}
-            for k, v in padded_output.meta_info.items():
-                if isinstance(v, torch.Tensor):
-                    trimmed_meta[k] = v[:-padding_size]
-                else:
-                    trimmed_meta[k] = v
-            padded_output.meta_info = trimmed_meta
-            
-        padded_output.batch = trimmed_batch
-        return padded_output
+        print(f"active_batch: {active_batch}")
+        return client(active_batch)
 
     def parse_question(self, input_ids: torch.Tensor) -> str:
         """Parse question to get the query content."""
@@ -336,49 +312,60 @@ Only output the final answer (in words, numbers or phrase) inside the <answer></
         query_contents = [content.split("<|im_start|>user\n")[1].split("<|im_end|>")[0] for content in query_contents]
         return query_contents
 
-    def parse_response(self, input_ids: torch.Tensor, think: bool = False) -> List[Tuple[bool, str, str]]:
+    def parse_response(self, response_contents: list[str], think: bool = False) -> List[Tuple[bool, str, str]]:
         """Parse response to get the thinking process and answer or tool call.
             return: [(is_stop, thinking, answer/tool_call), ...]
         """
-        response_contents = self.tokenizer.batch_decode(input_ids)
         results = []
         for i, content in enumerate(response_contents):
-            if think:
-                content = "<think>" + content
-            if "<think>" in content and "<answer>" in content:
-                if "</think>" not in content or "</answer>" not in content:
+            if "<tool_calls>" in content:
+                tool_call = content.split("<tool_calls>")[1].split("</tool_calls>")[0]
+                think = content.split("<tool_calls>")[0]
+                try:
+                    tool_call = json.loads(tool_call)
+                    assert "name" in tool_call, "no vliad function name in tool_call"
+                    assert "arguments" in tool_call, "no valid arguments in tool_call"
+                    assert tool_call["name"] in ["web_search", "browse_webpage"], "invalid tool name"
+                    if tool_call["name"] == "web_search":
+                        assert "query" in tool_call["arguments"], "no valid query in tool_call"
+                        assert isinstance(tool_call["arguments"]["query"], list), "query should be a list"
+                    elif tool_call["name"] == "browse_webpage":
+                        assert "url_list" in tool_call["arguments"], "no valid url_list in tool_call"
+                        assert isinstance(tool_call["arguments"]["url_list"], list), "url_list should be a list"
+                        assert len(tool_call["arguments"]["url_list"]) >= 1, "url_list number must be greater than 0"
+                    results.append((False, think, tool_call))
+                except Exception as e:
+                    print(f"model tool call format error: {e}")
                     results.append((True, "", ""))
-                else:
-                    think = content.split("<think>")[1].split("</think>")[0]
-                    answer = content.split("<answer>")[1].split("</answer>")[0]
-                    results.append((True, think, answer))
-            elif "<think>" in content and "<tool_call>" in content:
-                if "</tool_call>" not in content or "</think>" not in content:
+            elif "<tool_call>" in content:
+                tool_call = content.split("<tool_call>")[1].split("</tool_call>")[0]
+                think = content.split("<tool_call>")[0]
+                try:
+                    tool_call = json.loads(tool_call)
+                    assert "name" in tool_call, "no vliad function name in tool_call"
+                    assert "arguments" in tool_call, "no valid arguments in tool_call"
+                    assert tool_call["name"] in ["web_search", "browse_webpage"], "invalid tool name"
+                    if tool_call["name"] == "web_search":
+                        assert "query" in tool_call["arguments"], "no valid query in tool_call"
+                        assert isinstance(tool_call["arguments"]["query"], list), "query should be a list"
+                    elif tool_call["name"] == "browse_webpage":
+                        assert "url_list" in tool_call["arguments"], "no valid url_list in tool_call"
+                        assert isinstance(tool_call["arguments"]["url_list"], list), "url_list should be a list"
+                        assert len(tool_call["arguments"]["url_list"]) >= 1, "url_list number must be greater than 0"
+                    results.append((False, think, tool_call))
+                except Exception as e:
+                    print(f"model tool call format error: {e}")
                     results.append((True, "", ""))
-                else:
-                    think = content.split("<think>")[1].split("</think>")[0]
-                    tool_call = content.split("<tool_call>")[1].split("</tool_call>")[0]
-                    try:
-                        tool_call = json.loads(tool_call)
-                        assert "name" in tool_call, "no vliad function name in tool_call"
-                        assert "arguments" in tool_call, "no valid arguments in tool_call"
-                        assert tool_call["name"] in ["web_search", "browse_webpage"], "invalid tool name"
-                        if tool_call["name"] == "web_search":
-                            assert "query" in tool_call["arguments"], "no valid query in tool_call"
-                            assert isinstance(tool_call["arguments"]["query"], list), "query should be a list"
-                        elif tool_call["name"] == "browse_webpage":
-                            assert "url_list" in tool_call["arguments"], "no valid url_list in tool_call"
-                            assert isinstance(tool_call["arguments"]["url_list"], list), "url_list should be a list"
-                            assert len(tool_call["arguments"]["url_list"]) >= 1, "url_list number must be greater than 0"
-                        results.append((False, think, tool_call))
-                    except Exception as e:
-                        print(f"model tool call format error: {e}")
-                        results.append((True, "", ""))
+            elif "<answer>" in content:
+                answer = content.split("<answer>")[1].split("</answer>")[0]
+                think = content.split("<answer>")[0]
+                results.append((True, think, answer))
             else:
-                results.append((True, "", ""))
+                results.append((True, "", content))
+                
         return results
 
-    def run_llm_loop(self, gen_batch: DataProto, global_steps: int) -> Tuple[Dict, Dict]:
+    def run_llm_loop(self, gen_batch: DataProto, global_steps: int, query_id: int = 0) -> Tuple[Dict, Dict]:
         """Run main LLM generation loop."""
         node_rank = int(os.environ["PET_NODE_RANK"])
         print(f"node {node_rank} gains {len(gen_batch.batch['input_ids'])} datas!",flush=True)
@@ -389,12 +376,11 @@ Only output the final answer (in words, numbers or phrase) inside the <answer></
             for _ in range(self.config.n):
                 messages = [
                     {"role": "system", "content": self.system_prompt},
-                    {"role": "user", "content": query_content}
+                    {"role": "user", "content": query_content},
                 ]
                 messages_list.append(messages)
                 agent_grpo_idx.append(idx)
         activate_list = [i for i in range(len(messages_list))]
-        message_string_list = ["" for _ in range(len(messages_list))]
         
         # 确保保存目录存在
         output_dir = f"./outputs/{self.config.project_name}/{self.config.experiment_name}/rollout"
@@ -408,52 +394,36 @@ Only output the final answer (in words, numbers or phrase) inside the <answer></
             if activate_list == []:
                 break
 
-            rollings_active = self.tokenizer.apply_chat_template(activate_messages_list, add_generation_prompt=True, tools=self.tools, tokenize=False)
-            think = True
-            
-            if think:
-                rollings_active = [rolling + "<think>" for rolling in rollings_active]
-            else:
-                rollings_active = [rolling for rolling in rollings_active]
-            rollings_active = self.tokenizer(rollings_active, return_tensors="pt",padding=True)
-
-            pad_mask = rollings_active['input_ids'] != self.tokenizer.pad_token_id
-            sorted_indices = pad_mask.to(torch.int64).argsort(dim=1, stable=True)
-            rollings_active['input_ids'] = rollings_active['input_ids'].gather(1, sorted_indices)
-            rollings_active['attention_mask'] = rollings_active['attention_mask'].gather(1, sorted_indices)
-            
-            attention_mask = rollings_active['attention_mask']
-            rollings_active['position_ids'] = self.tensor_fn.create_position_ids(attention_mask)
-            
-            with open(f"./outputs/{self.config.project_name}/{self.config.experiment_name}/rollout/rollout_step_{global_steps}_round_{step}.json", "w", encoding='utf-8') as f:
+            with open(f"./outputs/{self.config.project_name}/{self.config.experiment_name}/rollout/rollout_{query_id}_step_{global_steps}_round_{step}.json", "w", encoding='utf-8') as f:
                 step_write_list = []
-                for i, input_ids in enumerate(rollings_active['input_ids']):
+                for i, messages in enumerate(activate_messages_list):
                     step_write_list.append({
                         "idx": activate_list[i],
                         "question": query_contents[agent_grpo_idx[activate_list[i]]],
-                        "input_ids_no_pad": self.tokenizer.decode(input_ids, skip_special_tokens=False).replace("<|endoftext|>", ""),
+                        "messages": messages,
                     })
                 json.dump(step_write_list, f, indent=4, ensure_ascii=False)
-            print(f"rollout_step_{global_steps}_round_{step}.json 写入完成")
-            
-            print(f"node {node_rank}, turn {step} rollings_active is {len(rollings_active['input_ids'])} datas")
-            rollings_active = DataProto.from_dict({
-                'input_ids': rollings_active['input_ids'],
-                'attention_mask': rollings_active['attention_mask'],
-                'position_ids': rollings_active['position_ids'],
-            })
-            
-            gen_output = self._generate_with_gpu_padding(rollings_active)
-            meta_info = gen_output.meta_info
-            print(f"node {node_rank}, turn {step} gen_output {len(gen_output.batch['responses'])} datas")
 
-            results = self.parse_response(gen_output.batch['responses'], think=think)
+            think = True
+            
+            if think:
+                activate_messages_list = [messages + [{"role": "assistant", "content": "<think>"}] for messages in activate_messages_list]
+
+            
+            print(f"node {node_rank}, turn {step} activate_messages_list is {len(activate_messages_list)} datas")
+            
+            
+            gen_output = self._generate_with_gpu_padding(activate_messages_list)
+            meta_info = {}
+            print(f"node {node_rank}, turn {step} gen_output {len(gen_output.outputs)} datas")
+
+            results = self.parse_response(gen_output.outputs, think=think)
             assert len(results) == len(activate_list) # 每一轮更新后，结果数量和当前活跃的query数量一致
             activate_list_copy = []
             tool_call_list = []
             for i in range(len(results)):
                 if results[i][0]:
-                    message_string_list[activate_list[i]] = self.tokenizer.decode(rollings_active.batch['input_ids'][i], skip_special_tokens=False).replace("<|endoftext|>", "") + self.tokenizer.decode(gen_output.batch['responses'][i], skip_special_tokens=False).replace("<|endoftext|>", "")
+                    messages_list[activate_list[i]].append({"role": "assistant", "content": gen_output.outputs[i]})
                 else:
                     activate_list_copy.append(activate_list[i])
                     tool_call_list.append((activate_list[i], messages_list[activate_list[i]][1]["content"], results[i][1], results[i][2]))
@@ -467,8 +437,12 @@ Only output the final answer (in words, numbers or phrase) inside the <answer></
                         "content": "<think>" + tool_call_list[i]['think'] + "</think>", 
                         "tool_calls": [
                                         {
+                                            "id": str(uuid.uuid4()),
                                             "type": "function", 
-                                            "function": tool_call_list[i]['tool_call']
+                                            "function": {
+                                                "name": tool_call_list[i]['tool_call']["name"],
+                                                "arguments": json.dumps(tool_call_list[i]['tool_call']["arguments"])
+                                            }
                                         }
                                     ]
                     }
@@ -476,15 +450,14 @@ Only output the final answer (in words, numbers or phrase) inside the <answer></
                 messages_list[tool_call_list[i]['idx']].append(
                     {
                         "role": "tool", 
-                        "name": tool_call_list[i]['tool_call']["name"],
-                        "content": tool_call_list[i]['content']
+                        # "name": tool_call_list[i]['tool_call']["name"], 
+                        "content": json.dumps(tool_call_list[i]['content'])
                     }
                 )
             print(f"第{step}轮结束， node {node_rank} 原本有{len(activate_list)}个query，现在有{len(activate_list_copy)}个query")
             activate_list = activate_list_copy
-        if activate_list != []:
-            for i in activate_list:
-                message_string_list[i] = self.tokenizer.apply_chat_template(messages_list[i], add_generation_prompt=True, tools=self.tools, tokenize=False)
+
+        message_string_list = [self.tokenizer.apply_chat_template(messages, add_generation_prompt=True, tools=self.tools, tokenize=False) for messages in messages_list]
         
         response_str_list = []
         initial_prompt_list = []
@@ -519,13 +492,14 @@ Only output the final answer (in words, numbers or phrase) inside the <answer></
         message_tensor.non_tensor_batch['agent_grpo_idx'] = np.array(agent_grpo_idx, dtype=object)
         print("generation结束")
         
-        with open(f"./outputs/{self.config.project_name}/{self.config.experiment_name}/rollout/rollout_step_{global_steps}.json", "w", encoding='utf-8') as f:
+        with open(f"./outputs/{self.config.project_name}/{self.config.experiment_name}/rollout/rollout_{query_id}_step_{global_steps}.json", "w", encoding='utf-8') as f:
             write_list = []
             for i, message_str in enumerate(message_string_list):
                 write_list.append({
                     "idx": i,
                     "question": query_contents[agent_grpo_idx[i]],
-                    "message_str": message_str
+                    "message_str": message_str,
+                    "messages": messages_list[i]
                 })
             json.dump(write_list, f, indent=4, ensure_ascii=False)
             print(f"rollout_step_{global_steps}.json 写入完成")
