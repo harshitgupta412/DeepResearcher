@@ -5,8 +5,39 @@ import time
 from lotus.web_search import web_search as lotus_web_search, WebSearchCorpus
 import pandas as pd
 import os 
+from datetime import datetime
 
-def web_search(query, config):
+end_dates=(
+    "29 Apr 2025",
+    "4 Apr 2025",
+    "24 Apr 2025",
+    "21 Apr 2025",
+    "10 Apr 2025",
+    "8 Apr 2025",
+    "30 Apr 2025",
+    "26 Apr 2025",
+    "7 Apr 2025",
+    "25 Apr 2025",
+    "22 Apr 2025",
+    "15 Apr 2025",
+    "25 Apr 2025",
+    "9 Apr 2025",
+    "29 Apr 2025",
+    "20 Apr 2025",
+    "29 Apr 2025",
+    "25 Apr 2025",
+    "17 Apr 2025",
+    "27 Apr 2025",
+    "5 Apr 2025",
+    "30 Apr 2025",
+    "22 Apr 2025",
+    "18 Apr 2025",
+    "22 Apr 2025",
+    "25 Apr 2025",
+)
+
+def web_search(query, config, query_id):
+    end_date = end_dates[query_id % len(end_dates)] if query_id is not None else None
     if not query:
         raise ValueError("Search query cannot be empty")
     if config['search_engine'] == 'google':
@@ -34,7 +65,8 @@ def web_search(query, config):
             df: pd.DataFrame = lotus_web_search(
                 query=query,
                 corpus=corpus,
-                K=config['search_top_k']
+                K=config['search_top_k'],
+                sort_by_date=False
             )
             if corpus == WebSearchCorpus.ARXIV:
                 df.rename(
@@ -42,6 +74,11 @@ def web_search(query, config):
                     inplace=True,
                 )
                 df["date"] = df["date"].astype(str)
+                if end_date:
+                    _end_date = datetime.strptime(end_date, "%d %b %Y")
+                    df["_date"] = pd.to_datetime(df["date"])
+                    df = df[df["_date"].dt.date <= _end_date.date()]
+                    df.drop(columns=["_date"], inplace=True)
             elif (
                 corpus == WebSearchCorpus.GOOGLE or corpus == WebSearchCorpus.GOOGLE_SCHOLAR
             ):
@@ -50,6 +87,9 @@ def web_search(query, config):
                 df.rename(columns={"name": "title"}, inplace=True)
             elif corpus == WebSearchCorpus.TAVILY:
                 df.rename(columns={"content": "snippet"}, inplace=True)
+            
+            if len(df) > config['search_top_k']:
+                df = df.head(config['search_top_k'])
             results.extend([{
                 "title": row['title'],
                 "link": row['url'],

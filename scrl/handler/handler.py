@@ -32,9 +32,9 @@ class Handler:
         self.query_save_path = self.agent_config["query_save_path"]
         self.id_to_context_lock = threading.Lock()
     
-    def search_and_add_to_dict(self, search_query, cur_api_result_dict, cur_api_result_dict_lock):
+    def search_and_add_to_dict(self, search_query, cur_api_result_dict, cur_api_result_dict_lock, query_id):
         try:
-            organic = web_search(search_query, self.agent_config)
+            organic = web_search(search_query, self.agent_config, query_id)
             with cur_api_result_dict_lock:
                 cur_api_result_dict[search_query] = {
                     'timestamp': time.time(),
@@ -58,6 +58,7 @@ class Handler:
                 continue
             if 'query' not in query_content['tool_call']['arguments']:
                 continue
+            query_id = query_content['idx']
             query_list = query_content['tool_call']['arguments']['query']
             if not isinstance(query_list, list):
                 continue
@@ -78,7 +79,7 @@ class Handler:
         api_future_list = []
         with concurrent.futures.ThreadPoolExecutor(max_workers=1000) as api_executor:
             for search_query in cur_api_result_dict:
-                api_future = api_executor.submit(self.search_and_add_to_dict, search_query, cur_api_result_dict, cur_api_result_dict_lock)
+                api_future = api_executor.submit(self.search_and_add_to_dict, search_query, cur_api_result_dict, cur_api_result_dict_lock, query_id)
                 api_future_list.append(api_future)
         print(f"搜索用时{time.time()-start_time}", flush=True)
         
@@ -217,8 +218,8 @@ class Handler:
             else:
                 batch_cnt_per_server = query_contents[0]["total_number"] // server_cnt + 1
                 server_query_contents_list = [[] for _ in range(server_cnt)]
-                for query_content in query_contents:
-                    server_query_contents_list[query_content['idx'] // batch_cnt_per_server].append(query_content)
+                for i, query_content in enumerate(query_contents):
+                    server_query_contents_list[i // batch_cnt_per_server].append(query_content)
 
                 with concurrent.futures.ThreadPoolExecutor(max_workers=server_cnt) as api_executor:
                     api_future_list = []

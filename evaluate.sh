@@ -1,6 +1,6 @@
 export VLLM_ATTENTION_BACKEND=XFORMERS
 export project_name="lotus-research"
-export experiment_name="deepresearcher-evaluate2"
+export experiment_name="deepresearcher-evaluate3"
 
     
 PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \

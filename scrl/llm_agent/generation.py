@@ -270,9 +270,9 @@ Only output the final answer (in words, numbers or phrase) inside the <answer></
         return [{"prompt":""} for _ in range(rollings_active.batch['input_ids'].shape[0])]
 
     def execute_predictions(self, 
-        tool_call_list: List[Tuple[int, str, str, str]], total_number: int = 4096
+        tool_call_list: List[Tuple[int, str, str, str]], query_id, total_number: int = 4096
     ) :
-        query_contents = [{"idx": tool_call[0], "question": tool_call[1], "think": tool_call[2], "tool_call": tool_call[3], "total_number":total_number} for tool_call in tool_call_list]
+        query_contents = [{"idx": query_id + tool_call[0], "question": tool_call[1], "think": tool_call[2], "tool_call": tool_call[3], "total_number":total_number} for tool_call in tool_call_list]
         with open(self.config.signal_writing_file, 'r') as f:
             signal_contents = json.load(f)
         assert signal_contents['signal'] == self.config.RESPONSE_SIGNAL
@@ -293,6 +293,8 @@ Only output the final answer (in words, numbers or phrase) inside the <answer></
                 time.sleep(10)
         with open(self.config.data_writing_file, 'r', encoding='utf-8') as f:
             query_contents = json.load(f)
+        for i in range(len(query_contents)):
+            query_contents[i]['idx'] -= query_id
         return query_contents
 
     def _generate_with_gpu_padding(self, active_batch: list[list[dict]]) -> LMOutput:
@@ -428,7 +430,7 @@ Only output the final answer (in words, numbers or phrase) inside the <answer></
                     activate_list_copy.append(activate_list[i])
                     tool_call_list.append((activate_list[i], messages_list[activate_list[i]][1]["content"], results[i][1], results[i][2]))
                     
-            tool_call_list = self.execute_predictions(tool_call_list,len(messages_list))
+            tool_call_list = self.execute_predictions(tool_call_list, query_id, len(messages_list))
             print(f"node {node_rank}, turn {step} tool_call_list {len(tool_call_list)} datas")
             for i in range(len(tool_call_list)):
                 messages_list[tool_call_list[i]['idx']].append(
@@ -496,7 +498,7 @@ Only output the final answer (in words, numbers or phrase) inside the <answer></
             write_list = []
             for i, message_str in enumerate(message_string_list):
                 write_list.append({
-                    "idx": i,
+                    "idx": i + query_id,
                     "question": query_contents[agent_grpo_idx[i]],
                     "message_str": message_str,
                     "messages": messages_list[i]

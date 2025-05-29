@@ -15,7 +15,7 @@ lotus_corpus:
 - tavily
 - arxiv
 
-query_save_path: "./scrl/handler/cache/search_result.json"
+query_save_path: "./scrl/handler/cache/search_result1.json"
 
 server_url_list:
   - "http://localhost:5000"
