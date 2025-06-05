@@ -12,8 +12,8 @@ reading_agent_model: "hosted_vllm/meta-llama/Llama-4-Scout-17B-16E-Instruct"
 # azure_bing_search_mkt: "zh-CN" # "en-US"
 
 lotus_corpus: 
-- tavily
 - arxiv
+- serp
 
 query_save_path: "./scrl/handler/cache/search_result1.json"
 
