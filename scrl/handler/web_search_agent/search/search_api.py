@@ -5,122 +5,80 @@ import time
 from lotus.web_search import web_search as lotus_web_search, WebSearchCorpus
 import pandas as pd
 import os 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 end_dates=(
-"03 Jun 2025", 
-"03 Jun 2025", 
-"02 Jun 2025", 
-"01 Jun 2025", 
-"01 Jun 2025", 
-"01 Jun 2025", 
-"01 Jun 2025", 
-"01 Jun 2025", 
-"01 Jun 2025", 
-"31 May 2025", 
-"31 May 2025", 
-"30 May 2025", 
-"30 May 2025", 
-"30 May 2025", 
-"29 May 2025", 
-"29 May 2025", 
-"28 May 2025", 
-"28 May 2025", 
-"03 Jun 2025", 
-"03 Jun 2025", 
-"03 Jun 2025", 
-"03 Jun 2025", 
-"03 Jun 2025", 
-"02 Jun 2025", 
-"02 Jun 2025", 
-"02 Jun 2025", 
-"01 Jun 2025", 
-"01 Jun 2025", 
-"01 Jun 2025", 
-"31 May 2025", 
-"31 May 2025", 
-"30 May 2025", 
-"30 May 2025", 
-"30 May 2025", 
-"30 May 2025", 
-"29 May 2025", 
-"29 May 2025", 
-"29 May 2025", 
-"28 May 2025", 
-"28 May 2025", 
-"28 May 2025", 
-"28 May 2025", 
-"28 May 2025", 
-"28 May 2025", 
-"28 May 2025", 
-"28 May 2025", 
-"27 May 2025", 
-"28 May 2025", 
-"10 May 2025", 
-"05 May 2025", 
-"05 May 2025", 
-"30 Apr 2025", 
-"30 Apr 2025", 
-"24 Apr 2025", 
-"21 Apr 2025", 
-"15 Apr 2025", 
-"14 Apr 2025", 
-"09 Apr 2025", 
-"02 Jun 2025", 
-"02 Jun 2025", 
-"02 Jun 2025", 
-"01 Jun 2025", 
-"31 May 2025", 
-"30 May 2025", 
-"30 May 2025", 
-"30 May 2025", 
-"30 May 2025", 
-"03 Jun 2025", 
-"28 May 2025", 
-"15 May 2025", 
-"12 May 2025", 
-"12 Apr 2025", 
-"08 Apr 2025", 
-"08 Apr 2025", 
-"27 May 2025", 
-"07 May 2025", 
-"29 Apr 2025", 
-"27 Apr 2025", 
-"15 Apr 2025", 
-"15 Apr 2025", 
-"12 Apr 2025", 
-"03 Jun 2025", 
-"29 May 2025", 
-"27 May 2025", 
-"26 May 2025", 
-"25 May 2025", 
-"25 May 2025", 
-"23 May 2025", 
-"21 May 2025", 
-"20 May 2025", 
-"19 May 2025", 
-"12 May 2025", 
-"06 May 2025", 
-"01 May 2025", 
-"29 Apr 2025", 
-"25 Apr 2025", 
-"24 Apr 2025", 
-"23 Apr 2025", 
-"22 Apr 2025", 
-"22 Apr 2025", 
-"21 Apr 2025", 
-"19 Apr 2025", 
-"19 Apr 2025", 
-"18 Apr 2025", 
-"17 Apr 2025", 
-"17 Apr 2025", 
-"14 Apr 2025", 
-"12 Apr 2025", 
-"08 Apr 2025", 
+"03 Jun 2025",
+"03 Jun 2025",
+"01 Jun 2025",
+"01 Jun 2025",
+"31 May 2025",
+"30 May 2025",
+"30 May 2025",
+"30 May 2025",
+"29 May 2025",
+"29 May 2025",
+"28 May 2025",
+"03 Jun 2025",
+"03 Jun 2025",
+"03 Jun 2025",
+"02 Jun 2025",
+"02 Jun 2025",
+"01 Jun 2025",
+"01 Jun 2025",
+"31 May 2025",
+"31 May 2025",
+"30 May 2025",
+"30 May 2025",
+"29 May 2025",
+"29 May 2025",
+"28 May 2025",
+"28 May 2025",
+"28 May 2025",
+"28 May 2025",
+"28 May 2025",
+"30 Apr 2025",
+"30 Apr 2025",
+"24 Apr 2025",
+"21 Apr 2025",
+"09 Apr 2025",
+"02 Jun 2025",
+"31 May 2025",
+"30 May 2025",
+"30 May 2025",
+"30 May 2025",
+"03 Jun 2025",
+"28 May 2025",
+"15 May 2025",
+"12 May 2025",
+"08 Apr 2025",
+"27 Apr 2025",
+"15 Apr 2025",
+"12 Apr 2025",
+"03 Jun 2025",
+"29 May 2025",
+"27 May 2025",
+"26 May 2025",
+"25 May 2025",
+"25 May 2025",
+"23 May 2025",
+"19 May 2025",
+"12 May 2025",
+"06 May 2025",
+"01 May 2025",
+"29 Apr 2025",
+"25 Apr 2025",
+"24 Apr 2025",
+"22 Apr 2025",
+"21 Apr 2025",
+"19 Apr 2025",
+"17 Apr 2025",
+"14 Apr 2025"
 )
 
 def web_search(query, config, query_id):
     end_date = end_dates[query_id % len(end_dates)] if query_id is not None else None
+    print(query_id, end_date)
     if not query:
         raise ValueError("Search query cannot be empty")
     if config['search_engine'] == 'google':
@@ -145,12 +103,19 @@ def web_search(query, config, query_id):
         ]
         results = []
         for corpus in corpuses:
-            df: pd.DataFrame = lotus_web_search(
-                query=query,
-                corpus=corpus,
-                K=config['search_top_k'],
-                sort_by_date=False
-            )
+            while True:
+                try:
+                    df: pd.DataFrame = lotus_web_search(
+                        query=query,
+                        corpus=corpus,
+                        K=config['search_top_k'],
+                        sort_by_date=False
+                    )
+                    break
+                except Exception as e:
+                    print(f"Error in lotus_web_search: {e}")
+                    time.sleep(1)
+                    continue
             if corpus == WebSearchCorpus.ARXIV:
                 df.rename(
                     columns={"abstract": "snippet", "link": "url", "published": "date"},
@@ -165,13 +130,19 @@ def web_search(query, config, query_id):
                 df.rename(columns={"name": "title"}, inplace=True)
             elif corpus == WebSearchCorpus.TAVILY:
                 df.rename(columns={"content": "snippet"}, inplace=True)
-            
-            if end_date and "date" in df.columns:
-                _end_date = datetime.strptime(end_date, "%d %b %Y")
-                df["_date"] = pd.to_datetime(df["date"], errors='coerce')
-                df = df[df["_date"].dt.date <= _end_date.date()]
-                df.drop(columns=["_date"], inplace=True)
-            
+            try:
+                print(df.columns)
+                if end_date and "date" in df.columns:
+                    print("Initial length: ", len(df))
+                    _end_date = datetime.strptime(end_date, "%d %b %Y")
+                    df["_date"] = pd.to_datetime(df["date"], errors='coerce')
+                    _end_date = _end_date - timedelta(days=1)
+                    df = df[df["_date"].dt.date <= _end_date.date()]
+                    df.drop(columns=["_date"], inplace=True)
+                    print("Final length: ", len(df))
+            except Exception as e:
+                print(f"Error processing date: {e}")
+                
             if len(df) > config['search_top_k']:
                 df = df.head(config['search_top_k'])
             results.extend([{

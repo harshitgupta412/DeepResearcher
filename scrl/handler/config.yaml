@@ -13,9 +13,8 @@ reading_agent_model: "hosted_vllm/meta-llama/Llama-4-Scout-17B-16E-Instruct"
 
 lotus_corpus: 
 - arxiv
-- serp
 
-query_save_path: "./scrl/handler/cache/search_result1.json"
+query_save_path: "./scrl/handler/cache/search_result.json"
 
 server_url_list:
   - "http://localhost:5000"

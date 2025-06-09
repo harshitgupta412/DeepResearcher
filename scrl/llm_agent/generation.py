@@ -29,7 +29,7 @@ from lotus.types import LMOutput
 
 client = LM(
     model="hosted_vllm/meta-llama/Llama-4-Scout-17B-16E-Instruct",
-    api_base="http://localhost:8001/v1",
+    api_base="http://localhost:8010/v1",
     custom_llm_provider="hosted_vllm",
     max_tokens=1000,
     temperature=0,
@@ -209,7 +209,7 @@ YOUR THINKING PROCESS
 YOUR TOOL CALL WITH CORRECT FORMAT
 </tool_call>
 
-You should always follow the above two formats strictly.
+You should always follow the above two formats strictly. You will be heavily penalized if you do not follow the format strictly.
 Only output the final answer (in words, numbers or phrase) inside the <answer></answer> tag, without any explanations or extra information. If this is a yes-or-no question, you should only answer yes or no.
 """
         else:
